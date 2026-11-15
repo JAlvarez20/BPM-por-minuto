@@ -1,0 +1,6 @@
+{
+  "name": "CardioBLE SM-R860",
+  "description": "Monitor cardíaco en tiempo real por Bluetooth Low Energy (Web Bluetooth) para Samsung Galaxy Watch4 SM-R860 con decodificador GATT 0x2A37, HRV y guía de conexión directa.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
