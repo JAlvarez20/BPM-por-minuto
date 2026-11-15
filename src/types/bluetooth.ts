@@ -23,6 +23,7 @@ export interface HeartRateSample extends ParsedHeartRatePacket {
   source: 'ble' | 'simulated';
   zoneIndex: number;
   zoneLabel: string;
+  stressScore: number | null;
 }
 
 export interface HrvMetrics {
@@ -51,19 +52,48 @@ export interface SessionStats {
   durationSec: number;
 }
 
-export interface CsvBiometricProfile {
+export interface BodyCompositionReading {
+  timestampMs: number;
+  bmi: number | null;
+  bmiCategory: string;
+  bmiColorClass: string;
   weightKg: number | null;
   heightCm: number | null;
   bodyFatPercent: number | null;
+  musclePercent: number | null;
+  muscleMassKg: number | null;
+  bodyWaterKg: number | null;
+  basalMetabolismKj: number | null;
+  impedanceOhm: number | null;
+  source: 'ble-0x2a9c' | 'ble-0x2a9d' | 'simulated-bia' | 'manual-profile';
+  rawHex: string;
+}
+
+export interface CsvBiometricProfile {
+  bodyFatPercent: number | null;
+}
+
+export type StressCategory = 'Bajo' | 'Moderado' | 'Elevado' | 'Alto';
+
+export interface StressReading {
+  timestampMs: number;
+  score: number;
+  category: StressCategory;
+  colorClass: string;
+  barHex: string;
+  source: 'ble-direct' | 'hrv-rr';
+  rawHex?: string;
 }
 
 export interface GattTargetConfig {
   serviceUuid: string;
   characteristicUuid: string;
+  bodyCompServiceUuid: string;
+  bodyCompCharUuid: string;
+  stressServiceUuid: string;
+  stressCharUuid: string;
   deviceNamePrefix: string;
   maxHr: number;
-  userHeightCm: number;
-  userWeightKg: number;
   manualBodyFatPercent: number | null;
 }
 
@@ -76,6 +106,8 @@ export interface ConnectedDeviceMetadata {
   modelNumber: string | null;
   serviceUuid: string;
   characteristicUuid: string;
+  hasBodyCompositionService: boolean;
+  hasStressCharacteristic: boolean;
   discoveredServices: string[];
   hrCharProperties: string[];
   connectedAtMs: number;

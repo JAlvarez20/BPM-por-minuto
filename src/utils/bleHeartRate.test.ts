@@ -101,8 +101,8 @@ test('computeSessionStats, formatDurationClock, decodeBodySensorLocation, and CS
   const packetA = parseHeartRateMeasurement(encodeHeartRateMeasurement(68, [880], true), 1000);
   const packetB = parseHeartRateMeasurement(encodeHeartRateMeasurement(82, [730], true), 6000);
   const samples = [
-    { ...packetA, id: '1', source: 'simulated' as const, zoneIndex: 1, zoneLabel: 'Z1 Recup.' },
-    { ...packetB, id: '2', source: 'simulated' as const, zoneIndex: 2, zoneLabel: 'Z2 Base' },
+    { ...packetA, id: '1', source: 'simulated' as const, zoneIndex: 1, zoneLabel: 'Z1 Recup.', stressScore: 22 },
+    { ...packetB, id: '2', source: 'simulated' as const, zoneIndex: 2, zoneLabel: 'Z2 Base', stressScore: 45 },
   ];
 
   const stats = computeSessionStats(samples);
@@ -112,15 +112,16 @@ test('computeSessionStats, formatDurationClock, decodeBodySensorLocation, and CS
   assert.equal(stats.totalSamples, 2);
   assert.equal(stats.durationSec, 5);
 
-  const csv = formatSamplesToCsv(samples, {
-    weightKg: 78.5,
-    heightCm: 175,
-    bodyFatPercent: 21.4,
-  });
+  const csv = formatSamplesToCsv(samples);
   assert.ok(
-    csv.includes('timestamp_iso,bpm,zona,contacto_sensor,rr_intervals_ms,energia_kj,origen,trama_hex,peso_kg,altura_cm,grasa_corporal_pct')
+    csv.includes('timestamp_iso,bpm,zona,nivel_estres,contacto_sensor,origen,trama_hex')
   );
-  assert.ok(csv.includes(',68,"Z1 Recup.",contact'));
-  assert.ok(csv.includes(',82,"Z2 Base",contact'));
-  assert.ok(csv.includes(',78.5,175,21.4'));
+  assert.ok(!csv.includes('rr_intervals_ms'));
+  assert.ok(!csv.includes('energia_kj'));
+  assert.ok(!csv.includes('grasa_corporal_pct'));
+  assert.ok(!csv.includes('peso_kg'));
+  assert.ok(!csv.includes('altura_cm'));
+  assert.ok(!csv.includes('imc_kg_m2'));
+  assert.ok(csv.includes(',68,"Z1 Recup.",22,contact,simulated,'));
+  assert.ok(csv.includes(',82,"Z2 Base",45,contact,simulated,'));
 });

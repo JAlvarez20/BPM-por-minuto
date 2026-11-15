@@ -15,6 +15,7 @@ import type {
   HeartRateSample,
   ParsedHeartRatePacket,
   SimulationPreset,
+  StressReading,
   WebBluetoothCharacteristic,
   WebBluetoothDevice,
   WebBluetoothGattServer,
@@ -34,14 +35,21 @@ import {
   normalizeGattUuid,
   parseHeartRateMeasurement,
 } from './utils/bleHeartRate';
+import {
+  STANDARD_BIOMETRIC_UUIDS,
+  computeStressFromHrv,
+  parseStressCharacteristic,
+} from './utils/biometrics';
 
 const DEFAULT_GATT_CONFIG: GattTargetConfig = {
   serviceUuid: STANDARD_GATT_UUIDS.HEART_RATE_SERVICE,
   characteristicUuid: STANDARD_GATT_UUIDS.HEART_RATE_MEASUREMENT_CHAR,
+  bodyCompServiceUuid: STANDARD_BIOMETRIC_UUIDS.BODY_COMPOSITION_SERVICE,
+  bodyCompCharUuid: STANDARD_BIOMETRIC_UUIDS.BODY_COMPOSITION_MEASUREMENT_CHAR,
+  stressServiceUuid: STANDARD_BIOMETRIC_UUIDS.CUSTOM_STRESS_SERVICE,
+  stressCharUuid: STANDARD_BIOMETRIC_UUIDS.CUSTOM_STRESS_CHAR,
   deviceNamePrefix: '',
   maxHr: 190,
-  userHeightCm: 172,
-  userWeightKg: 70,
   manualBodyFatPercent: null,
 };
 
@@ -53,6 +61,7 @@ export default function App() {
   const [isUuidModalOpen, setIsUuidModalOpen] = useState(false);
 
   const [samples, setSamples] = useState<HeartRateSample[]>([]);
+  const [directStress, setDirectStress] = useState<StressReading | null>(null);
   const [deviceMeta, setDeviceMeta] = useState<ConnectedDeviceMetadata | null>(null);
   const [blePacketCount, setBlePacketCount] = useState(0);
   const [bleNoDataElapsedSec, setBleNoDataElapsedSec] = useState(0);
@@ -68,6 +77,7 @@ export default function App() {
   >(null);
   const blePollTimerRef = useRef<number | null>(null);
   const bleCharsRef = useRef<WebBluetoothCharacteristic[]>([]);
+  const directStressRef = useRef<StressReading | null>(null);
   const simStateRef = useRef({
     bpm: 66,
     step: 0,
@@ -79,16 +89,39 @@ export default function App() {
     simStateRef.current.preset = simulationPreset;
   }, [simulationPreset]);
 
+  useEffect(() => {
+    directStressRef.current = directStress;
+  }, [directStress]);
+
   const appendPacket = useCallback(
     (packet: ParsedHeartRatePacket, source: 'ble' | 'simulated', maxHr: number) => {
       const zone = computeCardiacZone(packet.bpm, maxHr);
       setSamples((prev) => {
+        const recentRr: number[] = [];
+        for (const item of prev.slice(-30)) {
+          for (const rr of item.rrIntervalsMs) recentRr.push(rr);
+        }
+        for (const rr of packet.rrIntervalsMs) recentRr.push(rr);
+
+        const hrv = computeHrvMetrics(recentRr);
+        const activeDirectStress = directStressRef.current;
+        const computedStress =
+          activeDirectStress && Date.now() - activeDirectStress.timestampMs < 15000
+            ? activeDirectStress.score
+            : computeStressFromHrv({
+                bpm: packet.bpm,
+                rmssdMs: hrv.rmssdMs,
+                sdnnMs: hrv.sdnnMs,
+                timestampMs: packet.timestampMs,
+              })?.score ?? null;
+
         const nextSample: HeartRateSample = {
           ...packet,
           id: `${packet.timestampMs}-${Math.random().toString(36).slice(2, 7)}`,
           source,
           zoneIndex: zone.index,
           zoneLabel: zone.shortName,
+          stressScore: computedStress,
         };
 
         const trimmed = prev.length >= 600 ? prev.slice(prev.length - 599) : prev;
@@ -137,6 +170,7 @@ export default function App() {
     }
 
     setDeviceMeta(null);
+    setDirectStress(null);
     setBlePacketCount(0);
     setBleNoDataElapsedSec(0);
     setBleDiagnosticNote(null);
@@ -146,6 +180,7 @@ export default function App() {
   const handleStartSimulation = useCallback(() => {
     void disconnectBle();
     setErrorMessage(null);
+    setDirectStress(null);
     setConnectionMode('simulated');
   }, [disconnectBle]);
 
@@ -161,6 +196,7 @@ export default function App() {
         setConnectionMode('simulated');
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Simulation loop driving real 0x2A37 binary encode -> decode pipeline
@@ -227,7 +263,11 @@ export default function App() {
         const optionalServices = Array.from(
           new Set([
             gattConfig.serviceUuid,
+            gattConfig.bodyCompServiceUuid,
+            gattConfig.stressServiceUuid,
             STANDARD_GATT_UUIDS.HEART_RATE_SERVICE,
+            STANDARD_BIOMETRIC_UUIDS.BODY_COMPOSITION_SERVICE,
+            STANDARD_BIOMETRIC_UUIDS.WEIGHT_SCALE_SERVICE,
             STANDARD_GATT_UUIDS.BATTERY_SERVICE,
             STANDARD_GATT_UUIDS.DEVICE_INFO_SERVICE,
           ])
@@ -388,6 +428,8 @@ export default function App() {
           modelNumber: 'SM-R860',
           serviceUuid: gattConfig.serviceUuid,
           characteristicUuid: gattConfig.characteristicUuid,
+          hasBodyCompositionService: false,
+          hasStressCharacteristic: false,
           discoveredServices: discoveredShortLabels,
           hrCharProperties: hrCharProps,
           connectedAtMs: Date.now(),
@@ -431,7 +473,44 @@ export default function App() {
         await new Promise((resolve) => window.setTimeout(resolve, 250));
         if (!server.connected) return;
 
+        // Query optional services ONLY if present in discoveredServices (or when discovery isn't available)
         const canSkipOptionalDiscovery = discoveredServices.length > 0;
+        const hasBodyComp = false;
+
+        let hasStressChar = false;
+        if (!canSkipOptionalDiscovery || hasDiscoveredService(gattConfig.stressServiceUuid)) {
+          try {
+            const stressService = await server.getPrimaryService(gattConfig.stressServiceUuid);
+            const stressChar = await stressService.getCharacteristic(gattConfig.stressCharUuid);
+            bleCharsRef.current.push(stressChar);
+            hasStressChar = true;
+
+            stressChar.addEventListener('characteristicvaluechanged', (ev) => {
+              if (ev.target.value) {
+                try {
+                  setDirectStress(parseStressCharacteristic(ev.target.value, Date.now()));
+                } catch {
+                  // Ignore malformed optional stress packet
+                }
+              }
+            });
+            try {
+              await stressChar.startNotifications();
+            } catch {
+              // Optional
+            }
+            try {
+              const sVal = await stressChar.readValue();
+              if (sVal.byteLength >= 1) {
+                setDirectStress(parseStressCharacteristic(sVal, Date.now()));
+              }
+            } catch {
+              // Wait for notify
+            }
+          } catch {
+            // Stress derived from live HRV RR-intervals (0x2A37)
+          }
+        }
 
         let sensorLocation: string | null = null;
         try {
@@ -486,6 +565,8 @@ export default function App() {
                 ...prev,
                 batteryLevel,
                 bodySensorLocation: sensorLocation,
+                hasBodyCompositionService: hasBodyComp,
+                hasStressCharacteristic: hasStressChar,
                 hrCharProperties: [...hrCharProps],
               }
             : prev
@@ -595,18 +676,6 @@ export default function App() {
     }
   }, [appendPacket, gattConfig.maxHr]);
 
-  const handleUpdateAnthropometrics = useCallback(
-    (next: { weightKg: number; heightCm: number; bodyFatPercent: number | null }) => {
-      setGattConfig((prev) => ({
-        ...prev,
-        userWeightKg: next.weightKg,
-        userHeightCm: next.heightCm,
-        manualBodyFatPercent: next.bodyFatPercent,
-      }));
-    },
-    []
-  );
-
   const handlePrimaryBluetoothAction = useCallback(() => {
     if (connectionMode === 'ble-live') {
       void disconnectBle();
@@ -617,24 +686,21 @@ export default function App() {
 
   const handleExportCsv = useCallback(() => {
     if (samples.length === 0) return;
-    const csv = formatSamplesToCsv(samples, {
-      weightKg: gattConfig.userWeightKg,
-      heightCm: gattConfig.userHeightCm,
-      bodyFatPercent: gattConfig.manualBodyFatPercent,
-    });
+    const csv = formatSamplesToCsv(samples);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `sm-r860-ritmo-cardiaco-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+    link.download = `sm-r860-biometria-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [samples, gattConfig.userWeightKg, gattConfig.userHeightCm, gattConfig.manualBodyFatPercent]);
+  }, [samples]);
 
   const handleClearSession = useCallback(() => {
     setSamples([]);
+    setDirectStress(null);
   }, []);
 
   // Derived metrics
@@ -660,6 +726,16 @@ export default function App() {
 
   const hrvMetrics = useMemo(() => computeHrvMetrics(allRrIntervals), [allRrIntervals]);
   const sessionStats = useMemo(() => computeSessionStats(samples), [samples]);
+
+  const activeStressReading = useMemo(() => {
+    if (directStress) return directStress;
+    return computeStressFromHrv({
+      bpm: currentBpm,
+      rmssdMs: hrvMetrics.rmssdMs,
+      sdnnMs: hrvMetrics.sdnnMs,
+      timestampMs: latestSample?.timestampMs ?? Date.now(),
+    });
+  }, [directStress, currentBpm, hrvMetrics.rmssdMs, hrvMetrics.sdnnMs, latestSample?.timestampMs]);
 
   const latestContactLabel = !latestSample
     ? 'Contacto piel: en espera'
@@ -820,11 +896,8 @@ export default function App() {
                 />
 
                 <BiometricsPanel
-                  userHeightCm={gattConfig.userHeightCm}
-                  userWeightKg={gattConfig.userWeightKg}
-                  manualBodyFatPercent={gattConfig.manualBodyFatPercent}
-                  onUpdateAnthropometrics={handleUpdateAnthropometrics}
-                  onOpenCalibration={() => setIsUuidModalOpen(true)}
+                  stressReading={activeStressReading}
+                  hrvMetrics={hrvMetrics}
                 />
               </div>
             </div>
@@ -837,7 +910,7 @@ export default function App() {
                     Parámetros de conexión directa BLE — Samsung Galaxy Watch4 (SM-R860)
                   </h2>
                   <p className="mt-0.5 text-xs text-slate-400">
-                    Lectura en tiempo real de Ritmo Cardíaco (0x180D / 0x2A37) e intervalos RR para variabilidad HRV.
+                    Lectura simultánea de Ritmo Cardíaco (0x180D), Estrés vía HRV (RR 0x2A37 / GATT) y Grasa Corporal BIA (0x181B / 0x2A9C).
                   </p>
                 </div>
                 <button
@@ -852,27 +925,27 @@ export default function App() {
 
               <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-800/80 pt-4 text-xs sm:grid-cols-4">
                 <div>
-                  <dt className="text-slate-400">Servicio GATT (HRS)</dt>
+                  <dt className="text-slate-400">Ritmo Cardíaco (Notify)</dt>
                   <dd className="mt-0.5 font-mono font-semibold text-rose-400">
-                    {formatShortUuidLabel(gattConfig.serviceUuid)}
+                    {formatShortUuidLabel(gattConfig.serviceUuid)} · {formatShortUuidLabel(gattConfig.characteristicUuid)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-400">Característica (Notify)</dt>
+                  <dt className="text-slate-400">Grasa Corporal (BIA Opc.)</dt>
                   <dd className="mt-0.5 font-mono font-semibold text-cyan-300">
-                    {formatShortUuidLabel(gattConfig.characteristicUuid)}
+                    {formatShortUuidLabel(gattConfig.bodyCompServiceUuid)} · {formatShortUuidLabel(gattConfig.bodyCompCharUuid)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-400">Descriptor CCCD</dt>
+                  <dt className="text-slate-400">Nivel de Estrés</dt>
                   <dd className="mt-0.5 font-mono font-semibold text-slate-200">
-                    0x2902 (Auto)
+                    HRV RR · {formatShortUuidLabel(gattConfig.stressCharUuid)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-400">Ubicación / Batería (Opc.)</dt>
+                  <dt className="text-slate-400">Batería / Sensor (Opc.)</dt>
                   <dd className="mt-0.5 font-mono font-semibold text-slate-200">
-                    0x2A38 · 0x180F / 0x2A19
+                    0x180F / 0x2A19 · 0x2A38
                   </dd>
                 </div>
               </dl>
@@ -890,6 +963,7 @@ export default function App() {
         {activeTab === 'packets' && (
           <PacketInspectorView
             samples={samples}
+            bodyComp={null}
             onExportCsv={handleExportCsv}
             onClearSession={handleClearSession}
           />

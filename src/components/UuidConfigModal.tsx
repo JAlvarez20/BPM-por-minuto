@@ -6,6 +6,7 @@ import {
   formatShortUuidLabel,
   normalizeGattUuid,
 } from '../utils/bleHeartRate';
+import { STANDARD_BIOMETRIC_UUIDS } from '../utils/biometrics';
 
 interface UuidConfigModalProps {
   isOpen: boolean;
@@ -22,26 +23,24 @@ export function UuidConfigModal({
 }: UuidConfigModalProps) {
   const [serviceInput, setServiceInput] = useState(config.serviceUuid);
   const [charInput, setCharInput] = useState(config.characteristicUuid);
+  const [bodyServiceInput, setBodyServiceInput] = useState(config.bodyCompServiceUuid);
+  const [bodyCharInput, setBodyCharInput] = useState(config.bodyCompCharUuid);
+  const [stressServiceInput, setStressServiceInput] = useState(config.stressServiceUuid);
+  const [stressCharInput, setStressCharInput] = useState(config.stressCharUuid);
   const [prefixInput, setPrefixInput] = useState(config.deviceNamePrefix);
   const [maxHrInput, setMaxHrInput] = useState(String(config.maxHr));
-  const [heightInput, setHeightInput] = useState(String(config.userHeightCm));
-  const [weightInput, setWeightInput] = useState(String(config.userWeightKg));
-  const [bodyFatInput, setBodyFatInput] = useState(
-    config.manualBodyFatPercent !== null ? String(config.manualBodyFatPercent) : ''
-  );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setServiceInput(config.serviceUuid);
       setCharInput(config.characteristicUuid);
+      setBodyServiceInput(config.bodyCompServiceUuid);
+      setBodyCharInput(config.bodyCompCharUuid);
+      setStressServiceInput(config.stressServiceUuid);
+      setStressCharInput(config.stressCharUuid);
       setPrefixInput(config.deviceNamePrefix);
       setMaxHrInput(String(config.maxHr));
-      setHeightInput(String(config.userHeightCm));
-      setWeightInput(String(config.userWeightKg));
-      setBodyFatInput(
-        config.manualBodyFatPercent !== null ? String(config.manualBodyFatPercent) : ''
-      );
       setErrorMsg(null);
     }
   }, [isOpen, config]);
@@ -62,43 +61,47 @@ export function UuidConfigModal({
       return;
     }
 
+    const normalizedBodyService = normalizeGattUuid(bodyServiceInput);
+    if (!normalizedBodyService) {
+      setErrorMsg('El UUID de servicio BIA no es válido (usa 0x181B o 128 bits).');
+      return;
+    }
+
+    const normalizedBodyChar = normalizeGattUuid(bodyCharInput);
+    if (!normalizedBodyChar) {
+      setErrorMsg('El UUID de característica BIA no es válido (usa 0x2A9C o 128 bits).');
+      return;
+    }
+
+    const normalizedStressService = normalizeGattUuid(stressServiceInput);
+    if (!normalizedStressService) {
+      setErrorMsg('El UUID de servicio de Estrés no es válido.');
+      return;
+    }
+
+    const normalizedStressChar = normalizeGattUuid(stressCharInput);
+    if (!normalizedStressChar) {
+      setErrorMsg('El UUID de característica de Estrés no es válido.');
+      return;
+    }
+
     const parsedMaxHr = Number(maxHrInput);
     if (!Number.isFinite(parsedMaxHr) || parsedMaxHr < 100 || parsedMaxHr > 230) {
       setErrorMsg('La frecuencia cardíaca máxima debe estar entre 100 y 230 BPM.');
       return;
     }
 
-    const parsedHeight = Number(heightInput);
-    if (!Number.isFinite(parsedHeight) || parsedHeight < 100 || parsedHeight > 240) {
-      setErrorMsg('La altura debe estar entre 100 y 240 cm.');
-      return;
-    }
-
-    const parsedWeight = Number(weightInput);
-    if (!Number.isFinite(parsedWeight) || parsedWeight < 25 || parsedWeight > 250) {
-      setErrorMsg('El peso debe estar entre 25 y 250 kg.');
-      return;
-    }
-
-    let parsedBodyFat: number | null = null;
-    if (bodyFatInput.trim() !== '') {
-      const bf = Number(bodyFatInput);
-      if (!Number.isFinite(bf) || bf < 2 || bf > 70) {
-        setErrorMsg('El índice de grasa corporal debe estar entre 2% y 70%.');
-        return;
-      }
-      parsedBodyFat = Math.round(bf * 10) / 10;
-    }
-
     setErrorMsg(null);
     onSave({
       serviceUuid: normalizedService,
       characteristicUuid: normalizedChar,
+      bodyCompServiceUuid: normalizedBodyService,
+      bodyCompCharUuid: normalizedBodyChar,
+      stressServiceUuid: normalizedStressService,
+      stressCharUuid: normalizedStressChar,
       deviceNamePrefix: prefixInput.trim(),
       maxHr: Math.round(parsedMaxHr),
-      userHeightCm: Math.round(parsedHeight * 10) / 10,
-      userWeightKg: Math.round(parsedWeight * 10) / 10,
-      manualBodyFatPercent: parsedBodyFat,
+      manualBodyFatPercent: config.manualBodyFatPercent,
     });
     onClose();
   };
@@ -106,11 +109,12 @@ export function UuidConfigModal({
   const handleResetDefaults = () => {
     setServiceInput(STANDARD_GATT_UUIDS.HEART_RATE_SERVICE);
     setCharInput(STANDARD_GATT_UUIDS.HEART_RATE_MEASUREMENT_CHAR);
+    setBodyServiceInput(STANDARD_BIOMETRIC_UUIDS.BODY_COMPOSITION_SERVICE);
+    setBodyCharInput(STANDARD_BIOMETRIC_UUIDS.BODY_COMPOSITION_MEASUREMENT_CHAR);
+    setStressServiceInput(STANDARD_BIOMETRIC_UUIDS.CUSTOM_STRESS_SERVICE);
+    setStressCharInput(STANDARD_BIOMETRIC_UUIDS.CUSTOM_STRESS_CHAR);
     setPrefixInput('');
     setMaxHrInput('190');
-    setHeightInput('172');
-    setWeightInput('70');
-    setBodyFatInput('');
     setErrorMsg(null);
   };
 
@@ -130,10 +134,10 @@ export function UuidConfigModal({
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h2 id="uuid-modal-title" className="font-display text-lg font-semibold text-slate-50">
-              Parámetros GATT y Perfil del Sujeto
+              Parámetros GATT y Calibración Cardíaca
             </h2>
             <p className="mt-1 text-xs text-slate-400">
-              Configura el objetivo BLE de ritmo cardíaco (0x180D / 0x2A37) y los datos base para exportación CSV.
+              Configura UUIDs para Ritmo Cardíaco, Grasa Corporal (BIA) y Estrés, además de tu FC máxima.
             </p>
           </div>
           <button
@@ -179,10 +183,74 @@ export function UuidConfigModal({
                 className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs text-slate-100 focus:border-rose-500 focus:outline-none"
               />
             </div>
+
+            <div>
+              <label
+                htmlFor="gatt-bcs-service-uuid"
+                className="mb-1.5 block text-xs font-medium text-slate-300"
+              >
+                Servicio BIA / Grasa ({formatShortUuidLabel(STANDARD_BIOMETRIC_UUIDS.BODY_COMPOSITION_SERVICE)})
+              </label>
+              <input
+                id="gatt-bcs-service-uuid"
+                type="text"
+                value={bodyServiceInput}
+                onChange={(e) => setBodyServiceInput(e.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs text-slate-100 focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="gatt-bcs-char-uuid"
+                className="mb-1.5 block text-xs font-medium text-slate-300"
+              >
+                Característica BIA ({formatShortUuidLabel(STANDARD_BIOMETRIC_UUIDS.BODY_COMPOSITION_MEASUREMENT_CHAR)})
+              </label>
+              <input
+                id="gatt-bcs-char-uuid"
+                type="text"
+                value={bodyCharInput}
+                onChange={(e) => setBodyCharInput(e.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs text-slate-100 focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="gatt-stress-service-uuid"
+                className="mb-1.5 block text-xs font-medium text-slate-300"
+              >
+                Servicio Estrés (Opcional)
+              </label>
+              <input
+                id="gatt-stress-service-uuid"
+                type="text"
+                value={stressServiceInput}
+                onChange={(e) => setStressServiceInput(e.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs text-slate-100 focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="gatt-stress-char-uuid"
+                className="mb-1.5 block text-xs font-medium text-slate-300"
+              >
+                Característica Estrés (Opcional)
+              </label>
+              <input
+                id="gatt-stress-char-uuid"
+                type="text"
+                value={stressCharInput}
+                onChange={(e) => setStressCharInput(e.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs text-slate-100 focus:border-rose-500 focus:outline-none"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 border-t border-slate-800/80 pt-4 sm:grid-cols-2">
-            <div>
+          <div className="grid grid-cols-1 gap-4 border-t border-slate-800/80 pt-4 sm:grid-cols-3">
+            <div className="sm:col-span-2">
               <label
                 htmlFor="device-prefix-input"
                 className="mb-1.5 block text-xs font-medium text-slate-300"
@@ -214,66 +282,6 @@ export function UuidConfigModal({
                 value={maxHrInput}
                 onChange={(e) => setMaxHrInput(e.target.value)}
                 className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs tabular-nums text-slate-100 focus:border-rose-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 border-t border-slate-800/80 pt-4 sm:grid-cols-3">
-            <div>
-              <label
-                htmlFor="weight-kg-input"
-                className="mb-1.5 block text-xs font-medium text-slate-300"
-              >
-                Peso (kg)
-              </label>
-              <input
-                id="weight-kg-input"
-                type="number"
-                min={25}
-                max={250}
-                step="0.1"
-                value={weightInput}
-                onChange={(e) => setWeightInput(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs tabular-nums text-slate-100 focus:border-rose-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="height-cm-input"
-                className="mb-1.5 block text-xs font-medium text-slate-300"
-              >
-                Altura (cm)
-              </label>
-              <input
-                id="height-cm-input"
-                type="number"
-                min={100}
-                max={240}
-                step="0.5"
-                value={heightInput}
-                onChange={(e) => setHeightInput(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs tabular-nums text-slate-100 focus:border-rose-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="bodyfat-pct-input"
-                className="mb-1.5 block text-xs font-medium text-slate-300"
-              >
-                Grasa corporal (% opc.)
-              </label>
-              <input
-                id="bodyfat-pct-input"
-                type="number"
-                min={2}
-                max={70}
-                step="0.1"
-                placeholder="Ej. 19.5"
-                value={bodyFatInput}
-                onChange={(e) => setBodyFatInput(e.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs tabular-nums text-slate-100 placeholder:text-slate-600 focus:border-rose-500 focus:outline-none"
               />
             </div>
           </div>

@@ -1,14 +1,16 @@
 import { Download, Trash2 } from 'lucide-react';
-import type { HeartRateSample } from '../types/bluetooth';
+import type { BodyCompositionReading, HeartRateSample } from '../types/bluetooth';
 
 interface PacketInspectorViewProps {
   samples: HeartRateSample[];
+  bodyComp: BodyCompositionReading | null;
   onExportCsv: () => void;
   onClearSession: () => void;
 }
 
 export function PacketInspectorView({
   samples,
+  bodyComp,
   onExportCsv,
   onClearSession,
 }: PacketInspectorViewProps) {
@@ -28,10 +30,10 @@ export function PacketInspectorView({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="font-display text-xl font-bold text-slate-50">
-              Inspector de tramas BLE (0x2A37) y registro de sesión
+              Inspector de tramas BLE (0x2A37 · 0x2A9C) y registro de sesión
             </h1>
             <p className="mt-1 text-xs text-slate-400">
-              Decodificación byte a byte de las notificaciones GATT entrantes de ritmo cardíaco e intervalos RR.
+              Decodificación byte a byte de las notificaciones GATT entrantes de ritmo cardíaco, estrés y grasa corporal.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -117,6 +119,20 @@ export function PacketInspectorView({
             </dl>
           </div>
         )}
+
+        {bodyComp && (
+          <div className="mt-5 border-t border-slate-800/80 pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-slate-300">
+                Última trama BIA / Grasa corporal ({bodyComp.source})
+              </span>
+              <span className="font-mono text-slate-400">
+                Grasa {bodyComp.bodyFatPercent ?? '--'}% · Músculo {bodyComp.musclePercent ?? '--'}% · Impedancia {bodyComp.impedanceOhm ?? '--'} Ω
+              </span>
+            </div>
+            <p className="mt-2 font-mono text-xs text-cyan-300">{bodyComp.rawHex}</p>
+          </div>
+        )}
       </section>
 
       {/* Session Sample Table */}
@@ -137,6 +153,7 @@ export function PacketInspectorView({
                 <th className="px-6 py-3 font-medium">Hora</th>
                 <th className="px-4 py-3 font-medium text-right">BPM</th>
                 <th className="px-4 py-3 font-medium">Zona</th>
+                <th className="px-4 py-3 font-medium text-right">Estrés</th>
                 <th className="px-4 py-3 font-medium text-right">RR (ms)</th>
                 <th className="px-4 py-3 font-medium">Contacto</th>
                 <th className="px-4 py-3 font-medium">Origen</th>
@@ -146,7 +163,7 @@ export function PacketInspectorView({
             <tbody className="divide-y divide-slate-800/70">
               {recentRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                  <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
                     Sin lecturas registradas todavía.
                   </td>
                 </tr>
@@ -161,6 +178,9 @@ export function PacketInspectorView({
                     </td>
                     <td className="px-4 py-2.5 text-slate-200 whitespace-nowrap">
                       {row.zoneLabel}
+                    </td>
+                    <td className="px-4 py-2.5 font-mono tabular-nums text-right text-amber-300 whitespace-nowrap">
+                      {row.stressScore !== null ? `${row.stressScore}/100` : '—'}
                     </td>
                     <td className="px-4 py-2.5 font-mono tabular-nums text-right text-cyan-300 whitespace-nowrap">
                       {row.rrIntervalsMs.length > 0 ? row.rrIntervalsMs.join(', ') : '—'}

@@ -1,171 +1,92 @@
-import { useEffect, useState } from 'react';
-import { Settings2, UserRound } from 'lucide-react';
+import { Activity } from 'lucide-react';
+import type { HrvMetrics, StressReading } from '../types/bluetooth';
 
 interface BiometricsPanelProps {
-  userHeightCm: number;
-  userWeightKg: number;
-  manualBodyFatPercent: number | null;
-  onUpdateAnthropometrics: (next: {
-    weightKg: number;
-    heightCm: number;
-    bodyFatPercent: number | null;
-  }) => void;
-  onOpenCalibration: () => void;
+  stressReading: StressReading | null;
+  hrvMetrics: HrvMetrics;
 }
 
-export function BiometricsPanel({
-  userHeightCm,
-  userWeightKg,
-  manualBodyFatPercent,
-  onUpdateAnthropometrics,
-  onOpenCalibration,
-}: BiometricsPanelProps) {
-  const [weightDraft, setWeightDraft] = useState(String(userWeightKg));
-  const [heightDraft, setHeightDraft] = useState(String(userHeightCm));
-  const [bodyFatDraft, setBodyFatDraft] = useState(
-    manualBodyFatPercent !== null ? String(manualBodyFatPercent) : ''
-  );
+export function BiometricsPanel({ stressReading, hrvMetrics }: BiometricsPanelProps) {
+  const stressSourceLabel = !stressReading
+    ? 'Esperando lectura RR / Estrés'
+    : stressReading.source === 'ble-direct'
+    ? 'Sensor directo BLE GATT'
+    : 'Calculado vía HRV RR (0x2A37)';
 
-  useEffect(() => {
-    setWeightDraft(String(userWeightKg));
-  }, [userWeightKg]);
-
-  useEffect(() => {
-    setHeightDraft(String(userHeightCm));
-  }, [userHeightCm]);
-
-  useEffect(() => {
-    setBodyFatDraft(manualBodyFatPercent !== null ? String(manualBodyFatPercent) : '');
-  }, [manualBodyFatPercent]);
-
-  const handleWeightChange = (val: string) => {
-    setWeightDraft(val);
-    const num = Number(val);
-    if (val.trim() !== '' && Number.isFinite(num) && num >= 25 && num <= 250) {
-      onUpdateAnthropometrics({
-        weightKg: Math.round(num * 10) / 10,
-        heightCm: userHeightCm,
-        bodyFatPercent: manualBodyFatPercent,
-      });
-    }
-  };
-
-  const handleHeightChange = (val: string) => {
-    setHeightDraft(val);
-    const num = Number(val);
-    if (val.trim() !== '' && Number.isFinite(num) && num >= 100 && num <= 240) {
-      onUpdateAnthropometrics({
-        weightKg: userWeightKg,
-        heightCm: Math.round(num * 10) / 10,
-        bodyFatPercent: manualBodyFatPercent,
-      });
-    }
-  };
-
-  const handleBodyFatChange = (val: string) => {
-    setBodyFatDraft(val);
-    if (val.trim() === '') {
-      onUpdateAnthropometrics({
-        weightKg: userWeightKg,
-        heightCm: userHeightCm,
-        bodyFatPercent: null,
-      });
-      return;
-    }
-    const num = Number(val);
-    if (Number.isFinite(num) && num >= 2 && num <= 70) {
-      onUpdateAnthropometrics({
-        weightKg: userWeightKg,
-        heightCm: userHeightCm,
-        bodyFatPercent: Math.round(num * 10) / 10,
-      });
-    }
-  };
+  const stressPct = stressReading ? Math.max(0, Math.min(100, stressReading.score)) : 0;
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-[#0B0F19] p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-2.5">
-          <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-cyan-400" aria-hidden="true" />
-          <div>
-            <h2 className="font-display text-sm font-semibold text-slate-100">
-              Datos antropométricos previos al testeo (Exportación CSV)
-            </h2>
-            <p className="mt-0.5 text-xs text-slate-400">
-              Introduce peso, altura y % de grasa corporal antes de iniciar para incluirlos junto al ritmo cardíaco en el CSV.
-            </p>
+    <div className="grid grid-cols-1 gap-5">
+      {/* Stress Level (HRV / Direct GATT) Card */}
+      <section className="rounded-xl border border-slate-800 bg-[#0B0F19] p-5 flex flex-col justify-between">
+        <div>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="font-display text-sm font-semibold text-slate-100">
+                Nivel de Estrés en tiempo real
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-400">{stressSourceLabel}</p>
+            </div>
+            <Activity className="h-4 w-4 text-slate-500 shrink-0" aria-hidden="true" />
+          </div>
+
+          <div className="mt-4 flex items-baseline gap-2">
+            <span
+              data-testid="live-stress-value"
+              className="font-mono text-4xl font-bold tracking-tight tabular-nums text-slate-50"
+            >
+              {stressReading ? stressReading.score : '--'}
+            </span>
+            <span className="font-mono text-xs text-slate-400">/ 100</span>
+            {stressReading && (
+              <span className={`ml-auto text-xs font-semibold ${stressReading.colorClass}`}>
+                Nivel {stressReading.category}
+              </span>
+            )}
+          </div>
+
+          {/* Calibrated 0-100 Stress Bar */}
+          <div className="mt-3.5">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-[#070A10] border border-slate-800">
+              <div
+                className="h-full transition-all duration-300"
+                style={{
+                  width: `${stressPct}%`,
+                  backgroundColor: stressReading?.barHex ?? '#475569',
+                }}
+              />
+            </div>
+            <div className="mt-1.5 flex justify-between font-mono text-[10px] text-slate-500">
+              <span>0 Bajo</span>
+              <span>25</span>
+              <span>50 Moderado</span>
+              <span>75 Elevado</span>
+              <span>100 Alto</span>
+            </div>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onOpenCalibration}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 cursor-pointer whitespace-nowrap shrink-0"
-        >
-          <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Configurar GATT</span>
-        </button>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-800/80 pt-4 sm:grid-cols-3">
-        <div>
-          <label
-            htmlFor="pretest-weight-input"
-            className="mb-1.5 block text-xs font-medium text-slate-300"
-          >
-            Peso (kg)
-          </label>
-          <input
-            id="pretest-weight-input"
-            type="number"
-            min={25}
-            max={250}
-            step="0.1"
-            value={weightDraft}
-            onChange={(e) => handleWeightChange(e.target.value)}
-            className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs tabular-nums text-slate-100 focus:border-cyan-500 focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="pretest-height-input"
-            className="mb-1.5 block text-xs font-medium text-slate-300"
-          >
-            Altura (cm)
-          </label>
-          <input
-            id="pretest-height-input"
-            type="number"
-            min={100}
-            max={240}
-            step="0.5"
-            value={heightDraft}
-            onChange={(e) => handleHeightChange(e.target.value)}
-            className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs tabular-nums text-slate-100 focus:border-cyan-500 focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor="pretest-bodyfat-input"
-            className="mb-1.5 block text-xs font-medium text-slate-300"
-          >
-            Índice de grasa corporal (% opc.)
-          </label>
-          <input
-            id="pretest-bodyfat-input"
-            type="number"
-            min={2}
-            max={70}
-            step="0.1"
-            placeholder="Ej. 19.5"
-            value={bodyFatDraft}
-            onChange={(e) => handleBodyFatChange(e.target.value)}
-            className="w-full rounded-lg border border-slate-700 bg-[#070A10] px-3 py-2 font-mono text-xs tabular-nums text-slate-100 placeholder:text-slate-600 focus:border-cyan-500 focus:outline-none"
-          />
-        </div>
-      </div>
-    </section>
+        <dl className="mt-4 grid grid-cols-3 gap-4 border-t border-slate-800/80 pt-3.5 text-xs">
+          <div>
+            <dt className="text-slate-400">RMSSD</dt>
+            <dd className="mt-0.5 font-mono font-semibold tabular-nums text-cyan-300">
+              {hrvMetrics.rmssdMs !== null ? `${hrvMetrics.rmssdMs} ms` : '--'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-400">SDNN</dt>
+            <dd className="mt-0.5 font-mono font-semibold tabular-nums text-slate-100">
+              {hrvMetrics.sdnnMs !== null ? `${hrvMetrics.sdnnMs} ms` : '--'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-400">RR medio</dt>
+            <dd className="mt-0.5 font-mono font-semibold tabular-nums text-slate-100">
+              {hrvMetrics.meanRrMs !== null ? `${hrvMetrics.meanRrMs} ms` : '--'}
+            </dd>
+          </div>
+        </dl>
+      </section>
+    </div>
   );
 }

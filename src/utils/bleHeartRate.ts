@@ -1,6 +1,5 @@
 import type {
   CardiacZoneInfo,
-  CsvBiometricProfile,
   HrvMetrics,
   HeartRateSample,
   ParsedHeartRatePacket,
@@ -363,30 +362,13 @@ export function formatDurationClock(totalSec: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-export function formatSamplesToCsv(
-  samples: HeartRateSample[],
-  biometricProfile?: CsvBiometricProfile
-): string {
-  const header =
-    'timestamp_iso,bpm,zona,contacto_sensor,rr_intervals_ms,energia_kj,origen,trama_hex,peso_kg,altura_cm,grasa_corporal_pct';
-  const weightStr =
-    biometricProfile?.weightKg !== null && biometricProfile?.weightKg !== undefined
-      ? String(biometricProfile.weightKg)
-      : '';
-  const heightStr =
-    biometricProfile?.heightCm !== null && biometricProfile?.heightCm !== undefined
-      ? String(biometricProfile.heightCm)
-      : '';
-  const fatStr =
-    biometricProfile?.bodyFatPercent !== null && biometricProfile?.bodyFatPercent !== undefined
-      ? String(biometricProfile.bodyFatPercent)
-      : '';
+export function formatSamplesToCsv(samples: HeartRateSample[]): string {
+  const header = 'timestamp_iso,bpm,zona,nivel_estres,contacto_sensor,origen,trama_hex';
 
   const rows = samples.map((s) => {
     const iso = new Date(s.timestampMs).toISOString();
-    const rr = s.rrIntervalsMs.join('|');
-    const energy = s.energyExpendedKj !== null ? String(s.energyExpendedKj) : '';
-    return `${iso},${s.bpm},"${s.zoneLabel}",${s.sensorContact},"${rr}",${energy},${s.source},"${s.rawHex}",${weightStr},${heightStr},${fatStr}`;
+    const stress = s.stressScore !== null ? String(s.stressScore) : '';
+    return `${iso},${s.bpm},"${s.zoneLabel}",${stress},${s.sensorContact},${s.source},"${s.rawHex}"`;
   });
   return [header, ...rows].join('\n');
 }

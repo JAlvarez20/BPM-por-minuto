@@ -171,6 +171,13 @@ export function ConnectionGuideView({
               Si el reloj conecta pero no llegan paquetes 0x2A37, elimina el Galaxy Watch4 de{' '}
               <em>Configuración de Bluetooth de tu PC</em> (solo debe estar emparejado con tu teléfono) y usa el selector Bluetooth directo de esta página o el botón &quot;Re-suscribir 0x2A37&quot;.
             </li>
+            <li>
+              <span className="font-semibold text-slate-100">5. Índice de Grasa Corporal (BIA 0x181B / 0x2A9C):</span>{' '}
+              Apps como <em>Heart for Bluetooth</em> solo transmiten ritmo cardíaco (<span className="font-mono">0x180D</span>);
+              el sensor BioActive BIA del SM-R860 está restringido al <em>Samsung Health Sensor SDK</em> (<span className="font-mono">HealthTrackerType.BIA</span>).
+              Para incluir tu <strong>% de grasa corporal</strong> en el CSV sin una app Wear OS propia que anuncie <span className="font-mono">0x181B / 0x2A9C</span>,
+              puedes introducir manualmente el valor leído en Samsung Health en la tarjeta de Grasa Corporal.
+            </li>
           </ol>
         </section>
 
